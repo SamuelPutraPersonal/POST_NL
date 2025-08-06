@@ -4,6 +4,10 @@ from flask import Flask, request, jsonify
 # We import our validation logic from the postal_validator.py file
 from postal_validator import validate_dutch_postal_code
 
+# We import the new function to get data from our data layer
+from data_layer import get_standard_postal_code_prefixes
+
+
 # Create a Flask web application
 app = Flask(__name__)
 
@@ -34,6 +38,17 @@ def validate_parcel_code():
 
     # Send the result back as a JSON response with a 200 OK status code
     return jsonify(result), 200
+
+
+# NEW ENDPOINT!
+# This is a new API endpoint to get a list of all standard prefixes.
+# It uses the GET method, which is for retrieving data.
+@app.route("/postal_prefixes", methods=["GET"])
+def get_prefixes():
+    # Call the function from our data layer to get the data
+    prefixes = get_standard_postal_code_prefixes()
+    # Return the data as a JSON list
+    return jsonify(list(prefixes)), 200
 
 
 # This block tells Flask to run our web server when you execute this file directly.
