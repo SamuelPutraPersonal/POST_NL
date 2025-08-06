@@ -1,0 +1,71 @@
+# .github/workflows/main.yml
+
+# This is the name of your CI/CD workflow. You'll see this name in GitHub Actions.
+name: PostNL API CI/CD Pipeline
+
+# This specifies when the workflow should run.
+# Here, it runs whenever code is pushed to the 'main' branch.
+on:
+  push:
+    branches:
+      - main # You might also have 'develop' or other branches
+
+# A workflow is made up of one or more jobs.
+jobs:
+  # This is our main job, named 'build_and_test'.
+  build_and_test:
+    # This specifies the operating system environment where the job will run.
+    # 'ubuntu-latest' is a common choice for Python/Docker projects.
+    runs-on: ubuntu-latest
+
+    # Steps are a sequence of tasks that will be executed in the job.
+    steps:
+      # Step 1: Checkout the code from the repository.
+      # This action downloads your project's code onto the CI server.
+      - name: Checkout code
+        uses: actions/checkout@v4 # This is a standard GitHub Action
+
+      # Step 2: Set up Python.
+      # This action installs Python on the CI server.
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9" # Ensure this matches the Python version in your Dockerfile
+
+      # Step 3: Install Python dependencies.
+      # This reads your requirements.txt and installs Flask and pytest.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      # Step 4: Run Unit Tests for Core Logic. (Your QA Automation!)
+      # This executes the tests in test_postal_validator.py.
+      # If these tests fail, the workflow will stop here.
+      - name: Run Unit Tests
+        run: pytest test_postal_validator.py -v
+
+      # Step 5: Build the Docker image.
+      # This command builds the Docker image using your Dockerfile.
+      - name: Build Docker image
+        run: docker build -t postnl-api .
+
+      # Step 6: Run API Integration Tests. (Your QA Automation!)
+      # This executes the tests in test_app.py.
+      # These tests will use pytest's test client to interact with the Flask app
+      # *within the same environment* where it's being built.
+      # This is a crucial step to verify the API's behavior end-to-end.
+      - name: Run API Integration Tests
+        run: pytest test_app.py -v
+
+      # --- Conceptual Next Steps (for a real CI/CD pipeline) ---
+      # These steps would typically happen if all tests pass.
+      # - name: Push Docker image to registry (e.g., Docker Hub, GitHub Container Registry)
+      #   run: |
+      #     docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+      #     docker push postnl-api:latest
+
+      # - name: Deploy to production server
+      #   run: |
+      #     # Commands to deploy the new Docker image to your server (e.g., Kubernetes, AWS ECS)
+      #     # This would involve pulling the image and starting a new container.
