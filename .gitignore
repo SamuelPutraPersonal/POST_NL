@@ -1,0 +1,14 @@
+# Virtual environment directory
+my_new_env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+
+# IDE-specific files
+.vscode/
+.DS_Store
+
+# Temporary files
+*.log
+*.tmp
