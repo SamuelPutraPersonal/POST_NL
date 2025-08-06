@@ -4,7 +4,7 @@ import re
 # This is a "regular expression" pattern.
 # It tells Python exactly what a valid Dutch postal code format looks like:
 # ^\d{4}   : Starts with exactly 4 digits (e.g., 1234)
-# \s?      : Optionally, has a single space (e.g., 1234 AB or 1234AB)
+# \s?     : Optionally, has a single space (e.g., 1234 AB or 1234AB)
 # [A-Za-z]{2}$ : Ends with exactly 2 letters (case-insensitive)
 POSTAL_CODE_REGEX = re.compile(r"^\d{4}\s?[A-Za-z]{2}$")
 
