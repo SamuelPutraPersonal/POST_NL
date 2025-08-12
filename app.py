@@ -1,28 +1,23 @@
 # app.py
+import sqlite3
 from flask import Flask, request, jsonify
-
-# We import our validation logic from the postal_validator.py file
 from postal_validator import validate_dutch_postal_code
+from data_layer import get_all_prefixes, add_prefix, delete_prefix, get_prefix
+from database import init_db
 
-# We import the new function to get data from our data layer
-from data_layer import get_standard_postal_code_prefixes
-
-
-# Create a Flask web application
 app = Flask(__name__)
 
+# Initialize the database when the app starts
+init_db()
 
-# This is an "API endpoint" or "route".
-# It means when someone sends a POST request to '/validate' URL of our server,
-# the function below (@app.route) will run.
+
+# This is the original validation endpoint, now with improved error handling.
 @app.route("/validate", methods=["POST"])
 def validate_parcel_code():
-    # Try to get JSON data from the incoming request body
     data = request.get_json()
 
-    # Check if we actually received JSON data and if it contains a 'postal_code'
     if not data or "postal_code" not in data:
-        # If not, send back an error message with a 400 Bad Request status code
+        # Return a 400 status code for a bad request
         return (
             jsonify(
                 {"status": "error", "message": "Missing 'postal_code' in request body."}
@@ -30,30 +25,60 @@ def validate_parcel_code():
             400,
         )
 
-    # Get the postal code from the received data
     postal_code = data["postal_code"]
 
-    # Call our validation logic from postal_validator.py
+    # We get a result with a status and a message from the business logic.
     result = validate_dutch_postal_code(postal_code)
 
-    # Send the result back as a JSON response with a 200 OK status code
-    return jsonify(result), 200
+    # Now we handle different status codes based on the result.
+    if result["status"] == "error":
+        # Invalid format or input type is a bad request from the client.
+        return jsonify(result), 400
+    elif result["status"] == "warning":
+        # Non-standard area is still a successful validation, but with a warning.
+        return jsonify(result), 200
+    else:
+        # Success is a successful validation.
+        return jsonify(result), 200
 
 
-# NEW ENDPOINT!
-# This is a new API endpoint to get a list of all standard prefixes.
-# It uses the GET method, which is for retrieving data.
-@app.route("/postal_prefixes", methods=["GET"])
-def get_prefixes():
-    # Call the function from our data layer to get the data
-    prefixes = get_standard_postal_code_prefixes()
-    # Return the data as a JSON list
-    return jsonify(list(prefixes)), 200
+# The CRUD endpoint for managing postal prefixes.
+@app.route("/postal_prefixes", methods=["GET", "POST"])
+def handle_prefixes():
+    if request.method == "GET":
+        # Read: Get all prefixes
+        prefixes = get_all_prefixes()
+        return jsonify(prefixes)
+    elif request.method == "POST":
+        # Create: Add a new prefix
+        data = request.get_json()
+        prefix = data.get("prefix")
+        if not prefix:
+            return jsonify({"error": "Missing 'prefix' in request body."}), 400
+
+        try:
+            add_prefix(prefix)
+            return jsonify({"message": f"Prefix {prefix} added successfully."}), 201
+        except sqlite3.IntegrityError:
+            # Handle case where the prefix already exists
+            return jsonify({"error": f"Prefix {prefix} already exists."}), 409
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 
-# This block tells Flask to run our web server when you execute this file directly.
-# host='0.0.0.0' makes it accessible from outside the container (important for Docker).
-# port=5000 is the port number our API will listen on.
-# debug=True is useful for development, showing errors in the browser.
+@app.route("/postal_prefixes/<prefix>", methods=["DELETE"])
+def delete_prefix_by_param(prefix):
+    # Delete: Remove a specific prefix
+    existing_prefix = get_prefix(prefix)
+    if not existing_prefix:
+        return jsonify({"error": f"Prefix {prefix} not found."}), 404
+
+    try:
+        delete_prefix(prefix)
+        return jsonify({"message": f"Prefix {prefix} deleted successfully."}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
