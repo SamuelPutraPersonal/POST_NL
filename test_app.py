@@ -1,91 +1,133 @@
 # test_app.py
+
 import pytest
-
-# We import our Flask application object from app.py
 from app import app as flask_app
+import os
+import sqlite3
+
+# Define the database file name
+DATABASE_FILE = "postal_prefixes.db"
 
 
-# This is a pytest "fixture". It sets up a special client that can send
-# requests directly to our Flask app without needing to run a real server.
-# It's great for fast, isolated API testing.
+# Create a fixture to set up a clean database for each test
+@pytest.fixture(autouse=True)
+def setup_database_for_tests():
+    # Remove the database file before each test to ensure a clean state
+    if os.path.exists(DATABASE_FILE):
+        os.remove(DATABASE_FILE)
+
+    # Initialize a new, empty database
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "CREATE TABLE postal_prefixes (id INTEGER PRIMARY KEY, prefix TEXT NOT NULL UNIQUE)"
+    )
+    initial_prefixes = [
+        ("10",),
+        ("11",),
+        ("20",),
+        ("25",),
+        ("30",),
+        ("35",),
+        ("40",),
+        ("50",),
+        ("60",),
+        ("70",),
+        ("80",),
+        ("90",),
+    ]
+    cursor.executemany(
+        "INSERT INTO postal_prefixes (prefix) VALUES (?)", initial_prefixes
+    )
+    conn.commit()
+    conn.close()
+
+    yield
+
+    # Remove the database file after each test
+    if os.path.exists(DATABASE_FILE):
+        os.remove(DATABASE_FILE)
+
+
 @pytest.fixture
 def client():
-    # 'with' statement ensures the test client is properly set up and cleaned up.
     with flask_app.test_client() as client:
-        yield client  # 'yield' means the code after this will run after the test finishes.
+        yield client
+
+
+# --- Tests for the new CRUD endpoints ---
+
+
+def test_get_all_prefixes(client):
+    response = client.get("/postal_prefixes")
+    assert response.status_code == 200
+    assert isinstance(response.json, list)
+    assert len(response.json) == 12  # Check if all initial prefixes are returned
+
+
+def test_add_new_prefix(client):
+    response = client.post("/postal_prefixes", json={"prefix": "99"})
+    assert response.status_code == 201
+    assert response.json["message"] == "Prefix 99 added successfully."
+
+    # Verify the prefix was actually added
+    response = client.get("/postal_prefixes")
+    assert "99" in response.json
+
+
+def test_add_existing_prefix_failure(client):
+    response = client.post("/postal_prefixes", json={"prefix": "10"})
+    assert response.status_code == 409  # Conflict
+    assert "already exists" in response.json["error"]
+
+
+def test_delete_prefix(client):
+    response = client.delete("/postal_prefixes/10")
+    assert response.status_code == 200
+    assert response.json["message"] == "Prefix 10 deleted successfully."
+
+    # Verify the prefix was deleted
+    response = client.get("/postal_prefixes")
+    assert "10" not in response.json
+
+
+def test_delete_non_existent_prefix_failure(client):
+    response = client.delete("/postal_prefixes/99")
+    assert response.status_code == 404  # Not Found
+    assert "not found" in response.json["error"]
+
+
+# --- Tests for the updated /validate endpoint with new error codes ---
 
 
 def test_validate_standard_postal_code_api(client):
-    """
-    Test Case 1: API Happy Path - Send a valid, standard postal code to the API.
-    Check if the API returns the correct success status and message.
-    """
-    # Send a POST request to '/validate' with JSON data
     response = client.post("/validate", json={"postal_code": "1012 AB"})
-    # Assert that the HTTP status code is 200 (OK)
     assert response.status_code == 200
-    # Assert that the JSON response body is exactly what we expect
     assert response.json == {"status": "success", "message": "Standard Delivery"}
-    print(f"API Test Passed: Standard postal code returned correct response.")
 
 
 def test_validate_non_standard_postal_code_api(client):
-    """
-    Test Case 2: API Negative Path - Send a valid but non-standard postal code.
-    Check if the API returns the correct warning.
-    """
-    response = client.post("/validate", json={"postal_code": "9999 ZZ"})
+    response = client.post("/validate", json={"postal_code": "0123 AB"})
     assert response.status_code == 200
     assert response.json == {
         "status": "warning",
         "message": "Special Handling (Non-Standard Area)",
     }
-    print(f"API Test Passed: Non-standard postal code returned correct warning.")
 
 
-def test_validate_invalid_format_postal_code_api(client):
-    """
-    Test Case 3: API Negative Path - Send an invalid format (too short).
-    Check if the API returns the correct error.
-    """
+def test_validate_invalid_format_postal_code_api_error_code(client):
     response = client.post("/validate", json={"postal_code": "123"})
-    assert (
-        response.status_code == 200
-    )  # Our API returns 200 for validation results, even errors
-    assert response.json == {
-        "status": "error",
-        "message": "Special Handling (Invalid Format)",
-    }
-    print(f"API Test Passed: Invalid format postal code returned correct error.")
+    assert response.status_code == 400  # Now returns 400, not 200
+    assert "Invalid Format" in response.json["message"]
 
 
-def test_validate_missing_postal_code_in_request_api(client):
-    """
-    Test Case 4: API Negative Path - Send a request with missing 'postal_code' key.
-    Check if the API returns a 400 Bad Request.
-    """
-    response = client.post("/validate", json={"some_other_key": "1234 AB"})
-    assert (
-        response.status_code == 400
-    )  # This is an HTTP error, so status code is different
-    assert response.json == {
-        "status": "error",
-        "message": "Missing 'postal_code' in request body.",
-    }
-    print(f"API Test Passed: Missing postal code in request returned 400 error.")
-
-
-def test_validate_none_postal_code_api(client):
-    """
-    Test Case 5: API Edge Case - Send a None value for postal code.
-    Check if the API returns the correct error.
-    """
+def test_validate_none_postal_code_api_error_code(client):
     response = client.post("/validate", json={"postal_code": None})
-    assert (
-        response.status_code == 200
-    )  # Our API returns 200 for validation results, even errors
-    assert response.json == {
-        "status": "error",
-        "message": "Special Handling (Invalid Input Type)",
-    }
-    print(f"API Test Passed: None postal code returned correct error.")
+    assert response.status_code == 400  # Now returns 400, not 200
+    assert "Invalid Input Type" in response.json["message"]
+
+
+def test_validate_missing_postal_code_in_request_api_error_code(client):
+    response = client.post("/validate", json={"some_other_key": "1234 AB"})
+    assert response.status_code == 400
+    assert "Missing 'postal_code'" in response.json["message"]
